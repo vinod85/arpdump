@@ -33,6 +33,10 @@ typedef void (action_fn)(struct sockaddr_dl *sdl,
         struct sockaddr_inarp *s_in, struct rt_msghdr *rtm);
 static action_fn print_entry;
 
+static int search(u_long addr, action_fn *action);
+static int get(char *host);
+static struct sockaddr_inarp *getaddr(char *host);
+
 static char *rifname;
 static int nflag = 1;       /* no reverse dns lookups */
 
@@ -137,6 +141,51 @@ print_entry(struct sockaddr_dl *sdl,
 }
 
 /*
+ * Given a hostname, fills up a (static) struct sockaddr_inarp with
+ * the address of the host and returns a pointer to the
+ * structure.
+ */
+static struct sockaddr_inarp *
+getaddr(char *host)
+{
+	struct hostent *hp;
+	static struct sockaddr_inarp reply;
+
+	bzero(&reply, sizeof(reply));
+	reply.sin_len = sizeof(reply);
+	reply.sin_family = AF_INET;
+	reply.sin_addr.s_addr = inet_addr(host);
+	if (reply.sin_addr.s_addr == INADDR_NONE) {
+		if (!(hp = gethostbyname(host))) {
+			warnx("%s: %s", host, hstrerror(h_errno));
+			return (NULL);
+		}
+		bcopy((char *)hp->h_addr, (char *)&reply.sin_addr,
+				sizeof reply.sin_addr);
+	}
+	return (&reply);
+}
+
+static int
+get(char *host)
+{
+	struct sockaddr_inarp *addr;
+
+	addr = getaddr(host);
+	if (addr == NULL)
+		return (1);
+	if (0 == search(addr->sin_addr.s_addr, print_entry)) {
+		printf("%s (%s) -- no entry",
+				host, inet_ntoa(addr->sin_addr));
+		if (rifname)
+			printf(" on %s", rifname);
+		printf("\n");
+		return (1);
+	}
+	return (0);
+}
+
+/*
  * Search the arp table and do some action on matching entries
  */
 static int 
@@ -201,9 +250,11 @@ int
 main ( int argc, char *argv[] )
 {
 	argc = argc;
-	argv = argv;
 
-	search(0, print_entry);
+	if ( argv[1] )
+		get(argv[1]);
+	else
+		search(0, print_entry);
 
 	return ( EXIT_SUCCESS );
 }
